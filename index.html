@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <title>🎮 Romany Score</title>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; background: #f4f4f4; }
+    h1 { margin: 10px 0; }
+    .top-players { display: flex; justify-content: center; gap: 15px; margin: 20px 0; }
+    .card { background: white; padding: 10px 15px; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+    table { width: 90%; margin: 20px auto; border-collapse: collapse; background: white; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+    th { background: #eee; }
+    button { margin: 5px; padding: 6px 12px; border: none; border-radius: 8px; cursor: pointer; }
+    button:hover { opacity: 0.9; }
+    .btn { background: #007bff; color: white; }
+    .btn-danger { background: #dc3545; color: white; }
+    .btn-edit { background: #ffc107; color: black; font-size: 12px; padding: 2px 6px; }
+    .wins-table { width: 50%; margin: 20px auto; }
+  </style>
+</head>
+<body>
+  <h1>🎯 Romany Score</h1>
+
+  <div>
+    <label>🎲 اختر اللعبة: 
+      <select id="gameSelect">
+        <option>دومينو</option>
+        <option>الطاولة</option>
+        <option>الشطرنج</option>
+        <option>لعبة الورق</option>
+      </select>
+    </label>
+    <br>
+    <label>👥 اختر اللاعبين: 
+      <select id="playersSelect" multiple>
+        <option>روماني</option>
+        <option>عبير</option>
+        <option>جورج</option>
+        <option>نرمين</option>
+        <option>هاني</option>
+        <option>نيبال</option>
+        <option>شنوده</option>
+        <option>هناء</option>
+      </select>
+    </label>
+    <br>
+    <button class="btn" onclick="startNewGame()">🎮 بدء جيم جديد</button>
+    <button class="btn-danger" onclick="endGame()">✅ إنهاء الجيم</button>
+  </div>
+
+  <div class="top-players" id="topPlayers"></div>
+
+  <table id="scoreTable">
+    <thead id="scoreHead"></thead>
+    <tbody id="scoreBody"></tbody>
+  </table>
+
+  <h2>🏆 ترتيب اللاعبين حسب عدد مرات الفوز</h2>
+  <table class="wins-table" id="winsTable">
+    <thead>
+      <tr><th>اللاعب</th><th>عدد الفوز</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script type="module">
+    // استدعاء Firebase
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+    import { getDatabase, ref, set, push, onValue, update } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+
+    // إعداد Firebase
+    const firebaseConfig = {
+      apiKey: "AIzaSyAxAwhJzFIAbtR7cbyAbFevEvb_lVY20Ok",
+      authDomain: "romanyscore.firebaseapp.com",
+      databaseURL: "https://romanyscore-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "romanyscore",
+      storageBucket: "romanyscore.firebasestorage.app",
+      messagingSenderId: "536853744178",
+      appId: "1:536853744178:web:3dc612a4ed90cf3f210a2b",
+      measurementId: "G-EXGMHF3GL4"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    let currentGameId = null;
+    let players = [];
+    let wins = {};
+
+    // بدء جيم جديد
+    function startNewGame() {
+      const gameName = document.getElementById("gameSelect").value;
+      const selectedPlayers = Array.from(document.getElementById("playersSelect").selectedOptions).map(o => o.value);
+
+      if (selectedPlayers.length < 2) {
+        alert("لازم تختار لاعبين على الأقل!");
+        return;
+      }
+
+      const gamesRef = ref(db, "games");
+      const newGameRef = push(gamesRef);
+
+      currentGameId = newGameRef.key;
+      players = selectedPlayers;
+
+      set(newGameRef, {
+        gameName,
+        players,
+        rounds: [],
+        finished: false,
+        createdAt: Date.now()
+      });
+    }
+
+    // إضافة جولة جديدة
+    function addRound() {
+      if (!currentGameId) return;
+      const scores = {};
+      players.forEach(p => {
+        const val = document.getElementById(`input-${p}`).value;
+        scores[p] = val ? parseInt(val) : 0;
+      });
+
+      const roundRef = ref(db, `games/${currentGameId}/rounds`);
+      push(roundRef, scores);
+    }
+
+    // تعديل جولة
+    function editRound(roundId, oldScores) {
+      if (!currentGameId) return;
+      const newScores = {};
+      players.forEach(p => {
+        const val = prompt(`تعديل ${p}`, oldScores[p]);
+        newScores[p] = val ? parseInt(val) : 0;
+      });
+
+      update(ref(db, `games/${currentGameId}/rounds/${roundId}`), newScores);
+    }
+
+    // إنهاء الجيم
+    function endGame() {
+      if (!currentGameId) return;
+      update(ref(db, `games/${currentGameId}`), { finished: true });
+
+      // حساب الفائز
+      const totals = {};
+      players.forEach(p => totals[p] = 0);
+      const roundsRef = ref(db, `games/${currentGameId}/rounds`);
+      onValue(roundsRef, (snapshot) => {
+        snapshot.forEach(r => {
+          const data = r.val();
+          for (let p in data) totals[p] += data[p];
+        });
+        const winner = Object.entries(totals).sort((a, b) => b[1] - a[1])[0][0];
+        wins[winner] = (wins[winner] || 0) + 1;
+        renderWins();
+      }, { onlyOnce: true });
+    }
+
+    // متابعة التغييرات
+    onValue(ref(db, "games"), (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+      const gameEntries = Object.entries(data);
+      const lastGame = gameEntries[gameEntries.length - 1];
+      currentGameId = lastGame[0];
+      const game = lastGame[1];
+      players = game.players;
+      renderGame(game);
+    });
+
+    // رسم اللعبة
+    function renderGame(game) {
+      // عرض الكروت
+      const totals = {};
+      game.players.forEach(p => totals[p] = 0);
+      for (let r in game.rounds) {
+        const scores = game.rounds[r];
+        for (let p in scores) totals[p] += scores[p];
+      }
+      const sortedPlayers = Object.entries(totals).filter(([p, s]) => s > 0).sort((a, b) => b[1] - a[1]);
+
+      document.getElementById("topPlayers").innerHTML = sortedPlayers.slice(0, 3)
+        .map(([p, s]) => `<div class="card"><h3>${p}</h3><p>${s}</p></div>`).join("");
+
+      // جدول التسجيل
+      const headRow = `<tr><th>الجولة</th>${game.players.map(p => `<th>${p}</th>`).join("")}</tr>`;
+      document.getElementById("scoreHead").innerHTML = headRow;
+
+      let bodyHTML = "";
+      let roundIndex = Object.keys(game.rounds || {}).length;
+
+      for (let r in game.rounds) {
+        const scores = game.rounds[r];
+        bodyHTML = `
+          <tr>
+            <td>جولة ${roundIndex}</td>
+            ${game.players.map(p => `<td>${scores[p] || 0}</td>`).join("")}
+            <td><button class="btn-edit" onclick='editRound("${r}", ${JSON.stringify(scores)})'>✏️</button></td>
+          </tr>
+        ` + bodyHTML;
+        roundIndex--;
+      }
+
+      // صف الإدخال
+      if (!game.finished) {
+        bodyHTML = `
+          <tr>
+            <td>➕</td>
+            ${game.players.map(p => `<td><input id="input-${p}" type="number" style="width:50px"></td>`).join("")}
+            <td><button class="btn" onclick="addRound()">➕ أضف جولة</button></td>
+          </tr>
+        ` + bodyHTML;
+      }
+
+      document.getElementById("scoreBody").innerHTML = bodyHTML;
+    }
+
+    // جدول الفوز
+    function renderWins() {
+      const sorted = Object.entries(wins).sort((a, b) => b[1] - a[1]);
+      document.querySelector("#winsTable tbody").innerHTML = sorted
+        .map(([p, w]) => `<tr><td>${p}</td><td>${w}</td></tr>`).join("");
+    }
+
+    // عشان نستخدم الدوال من HTML
+    window.startNewGame = startNewGame;
+    window.addRound = addRound;
+    window.editRound = editRound;
+    window.endGame = endGame;
+  </script>
+</body>
+</html>
