@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <title>🎮 تسجيل السكورات</title>
+  <style>
+    body { font-family: Arial, sans-serif; direction: rtl; background: #f7f7f7; margin: 0; padding: 20px; }
+    h1, h2 { text-align: center; color: #333; }
+    .setup, .game, .wins { background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); margin: 20px auto; max-width: 900px; }
+    input, select, button { padding: 7px; margin: 5px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; }
+    button { cursor: pointer; font-weight: bold; }
+    .start { background: #4caf50; color: white; }
+    .add { background: #2196f3; color: white; }
+    .top-players { display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; margin: 20px 0; }
+    .card { background: #fff; padding: 15px; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); width: 150px; text-align: center; font-weight: bold; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #fff; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    th { background: #eee; }
+    input[type="number"] { width: 70px; padding: 5px; text-align: center; }
+    .buttons { margin: 20px 0; text-align: center; }
+    .buttons button { margin: 5px; padding: 10px 15px; border: none; border-radius: 8px; }
+    .end { background: #f44336; color: white; }
+    .edit-small { background: #ff9800; color: white; font-size: 12px; padding: 3px 6px; border-radius: 6px; }
+    .small { font-size: 12px; padding:6px 10px; border-radius:6px; }
+  </style>
+</head>
+<body>
+  <h1>🎮 تسجيل السكورات</h1>
+
+  <div class="setup" id="setup">
+    <h2>⚙️ إعداد الجيم</h2>
+    <label>🎲 اختر اللعبة:</label>
+    <select id="gameSelect">
+      <option>دومينو</option>
+      <option>الطاولة</option>
+      <option>الشطرنج</option>
+      <option>لعبة الورق</option>
+    </select>
+    <input type="text" id="newGameInput" placeholder="إضافة لعبة جديدة">
+    <button id="addGameBtn" class="add">➕ إضافة لعبة</button>
+
+    <hr>
+
+    <h3>👥 اختر اللاعبين:</h3>
+    <div id="playerChoices"></div>
+    <input type="text" id="newPlayerInput" placeholder="إضافة لاعب جديد">
+    <button id="addPlayerBtn" class="add">➕ إضافة لاعب</button>
+
+    <br>
+    <div style="margin-top:10px;">
+      <button id="startGameBtn" class="start">🚀 ابدأ الجيم</button>
+      <button id="clearStorageBtn" class="small" style="background:#e0e0e0;">🗑️ مسح بيانات التخزين</button>
+    </div>
+  </div>
+
+  <div class="game" id="game" style="display:none;">
+    <h2 id="gameName"></h2>
+    <div class="top-players" id="topPlayers"></div>
+    <table id="playersTable">
+      <thead><tr><th>اللاعب</th><th>المجموع</th></tr></thead>
+      <tbody id="playersBody"></tbody>
+    </table>
+
+    <h2 style="margin-top:40px;">📊 جدول الجولات</h2>
+    <div class="buttons">
+      <button id="addRoundBtn" class="add">➕ إضافة جولة جديدة</button>
+      <button id="endGameBtn" class="end">✅ إنهاء الجيم</button>
+    </div>
+    <table id="roundsTable">
+      <thead id="roundsHead"></thead>
+      <tbody id="roundsBody"></tbody>
+    </table>
+  </div>
+
+  <div class="wins" id="winsTable">
+    <h2>🏆 ترتيب اللاعبين حسب عدد الفوز</h2>
+    <table>
+      <thead><tr><th>اللاعب</th><th>عدد الفوز</th></tr></thead>
+      <tbody id="winsBody"></tbody>
+    </table>
+  </div>
+
+  <script>
+    // ----- إعداد افتراضي وقراءة من LocalStorage مع تنظيف البيانات -----
+    const DEFAULT_FIXED_PLAYERS = ["روماني","عبير","جورج","نرمين","هاني","نيبال","شنوده","هناء"];
+
+    function safeParse(key) {
+      try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; }
+      catch(e){ return null; }
+    }
+    function isText(x){ return typeof x === 'string' && x.trim().length > 0; }
+
+    // تحميل وتهيئة fixedPlayers
+    let fixedPlayersRaw = safeParse('fixedPlayers');
+    let fixedPlayers = Array.isArray(fixedPlayersRaw) ? fixedPlayersRaw.filter(isText) : DEFAULT_FIXED_PLAYERS.slice();
+
+    // تحميل اللاعبين المحفوظين (وبتنظيف)
+    let players = [];
+    const rawPlayers = safeParse('players');
+    if(Array.isArray(rawPlayers)) {
+      players = rawPlayers.map(p => {
+        if(!p || typeof p !== 'object') return null;
+        const name = isText(p.name) ? p.name : null;
+        if(!name) return null;
+        const scores = Array.isArray(p.scores) ? p.scores.map(s => {
+          if (s === null || s === undefined || s === "") return undefined;
+          const n = Number(s);
+          return Number.isNaN(n) ? undefined : n;
+        }) : [];
+        const total = (typeof p.total === 'number' && !Number.isNaN(p.total)) ? p.total : scores.reduce((a,b)=>a+(b||0),0);
+        const wins = (typeof p.wins === 'number' && !Number.isNaN(p.wins)) ? p.wins : 0;
+        return { name, scores, total, wins };
+      }).filter(Boolean);
+    }
+
+    // playersWins (تأكد من عدم تكرار، ومزامنة مع players إن لزم)
+    let playersWins = [];
+    const rawWins = safeParse('playersWins');
+    if(Array.isArray(rawWins)) {
+      playersWins = rawWins.filter(x => x && isText(x.name)).map(x => ({ name: x.name, wins: Number.isInteger(x.wins) ? x.wins : (Number(x.wins) || 0) }));
+      // توحيد أسماء مكررة
+      const map = {};
+      playersWins.forEach(w => map[w.name] = (map[w.name] || 0) + (w.wins||0));
+      playersWins = Object.keys(map).map(n => ({ name: n, wins: map[n] }));
+    } else {
+      playersWins = players.map(p => ({ name: p.name, wins: p.wins || 0 }));
+    }
+
+    // roundCount, gameEnded, editableRound
+    const rawRound = safeParse('roundCount');
+    let roundCount = (Number.isInteger(rawRound) && rawRound >= 0) ? rawRound : Math.max(0, ...players.map(p=>p.scores.length));
+    let gameEnded = Boolean(safeParse('gameEnded')) || false;
+    let editableRound = safeParse('editableRound');
+    if(!(editableRound === null || Number.isInteger(editableRound))) editableRound = null;
+
+    function saveData() {
+      try {
+        localStorage.setItem('fixedPlayers', JSON.stringify(fixedPlayers));
+        localStorage.setItem('players', JSON.stringify(players));
+        localStorage.setItem('playersWins', JSON.stringify(playersWins));
+        localStorage.setItem('roundCount', JSON.stringify(roundCount));
+        localStorage.setItem('gameEnded', JSON.stringify(gameEnded));
+        localStorage.setItem('editableRound', JSON.stringify(editableRound));
+      } catch(e) {
+        console.error("خطأ في الحفظ:", e);
+      }
+    }
+
+    // ----- واجهة/تفاعل -----
+    function renderPlayerChoices() {
+      const container = document.getElementById("playerChoices");
+      container.innerHTML = "";
+      fixedPlayers.forEach(name => {
+        const label = document.createElement("label");
+        label.style.marginRight = "8px";
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.value = name;
+        // إذا فيه جيم شغّال مخزن، نخلي الاختيارات متوافقة مع اللاعبين الحاليين
+        if(players.some(p => p.name === name) && !gameEnded) checkbox.checked = true;
+        label.appendChild(checkbox);
+        label.append(" " + name + " ");
+        container.appendChild(label);
+      });
+    }
+
+    function addPlayer() {
+      const input = document.getElementById("newPlayerInput");
+      const name = input.value.trim();
+      if(!name) return;
+      if(!fixedPlayers.includes(name)) fixedPlayers.push(name);
+      input.value = "";
+      saveData();
+      renderPlayerChoices();
+    }
+
+    function addGame() {
+      const input = document.getElementById("newGameInput");
+      const name = input.value.trim();
+      if(!name) return;
+      const select = document.getElementById("gameSelect");
+      // منع التكرار
+      if(!Array.from(select.options).some(o=>o.value===name)) {
+        const option = document.createElement("option");
+        option.textContent = name;
+        option.value = name;
+        select.appendChild(option);
+      }
+      select.value = name;
+      input.value = "";
+    }
+
+    function startGame() {
+      const gameSelect = document.getElementById("gameSelect");
+      const gameName = gameSelect.value;
+      document.getElementById("gameName").textContent = "🎲 اللعبة: " + gameName;
+
+      // بناء مصفوفة اللاعبين من الاختيارات (أو استئناف إذا كانت موجودة بالفعل)
+      const checked = Array.from(document.querySelectorAll("#playerChoices input:checked")).map(c => c.value);
+      if(players.length > 0 && !gameEnded) {
+        // إذا في بيانات محفوظة وأهلية للاستمرار، نستخدمها (resume)
+      } else {
+        players = [];
+        checked.forEach(name => {
+          const existingWin = playersWins.find(p => p.name === name);
+          if(existingWin) players.push({ name, total: 0, scores: [], wins: existingWin.wins });
+          else {
+            players.push({ name, total: 0, scores: [], wins: 0 });
+            if(!playersWins.find(p=>p.name===name)) playersWins.push({ name, wins: 0 });
+          }
+        });
+      }
+
+      if(players.length < 2) {
+        alert("لازم تختار على الأقل لاعبين!");
+        return;
+      }
+
+      document.getElementById("setup").style.display = "none";
+      document.getElementById("game").style.display = "block";
+
+      // إعداد المتغيرات للجولة الجديدة إذا لم يكن هناك جولات محفوظة
+      roundCount = Math.max( roundCount, ...players.map(p => p.scores.length) );
+      gameEnded = false;
+      editableRound = (roundCount>0 ? roundCount-1 : null);
+      saveData();
+
+      renderTopPlayers();
+      renderPlayersTable();
+      renderRounds();
+    }
+
+    function renderTopPlayers() {
+      const topDiv = document.getElementById("topPlayers");
+      topDiv.innerHTML = "";
+      const filtered = players.filter(p => typeof p.total === 'number' && p.total > 0);
+      filtered.sort((a,b) => b.total - a.total);
+      filtered.forEach(p => {
+        const card = document.createElement("div");
+        card.className = "card";
+        card.innerHTML = `${p.name}<br>⭐ ${p.total}`;
+        topDiv.appendChild(card);
+      });
+    }
+
+    function renderPlayersTable() {
+      const body = document.getElementById("playersBody");
+      body.innerHTML = "";
+      if(players.length === 0) {
+        // نعرض قائمة اللاعبين الافتراضية عندما لا يوجد جيم
+        fixedPlayers.forEach(name => {
+          const row = document.createElement("tr");
+          row.innerHTML = `<td>${name}</td><td>0</td>`;
+          body.appendChild(row);
+        });
+        return;
+      }
+      players.slice().sort((a,b)=> (b.total||0) - (a.total||0)).forEach(p => {
+        const row = document.createElement("tr");
+        row.innerHTML = `<td>${p.name}</td><td>${p.total || 0}</td>`;
+        body.appendChild(row);
+      });
+    }
+
+    function renderRounds() {
+      const head = document.getElementById("roundsHead");
+      const body = document.getElementById("roundsBody");
+
+      // رأس الجدول
+      let headHTML = "<tr><th>الجولة</th>";
+      players.forEach(p => { headHTML += `<th>${p.name}</th>`; });
+      headHTML += "<th>تعديل</th></tr>";
+      head.innerHTML = headHTML;
+
+      // صف المجموع
+      let totalRow = "<tr style='background:#eee; font-weight:bold;'><td>المجموع</td>";
+      players.forEach(p => { totalRow += `<td>${p.total || 0}</td>`; });
+      totalRow += "<td>-</td></tr>";
+      body.innerHTML = totalRow;
+
+      // جولات (من الأحدث للأقدم)
+      for (let r = roundCount - 1; r >= 0; r--) {
+        let row = `<tr><td>جولة ${r+1}</td>`;
+        players.forEach((p, i) => {
+          const val = (Array.isArray(p.scores) && p.scores[r] !== undefined) ? p.scores[r] : "";
+          const disabled = (editableRound === r && !gameEnded) ? "" : "disabled";
+          row += `<td><input type="number" value="${val}" onchange="updateScore(${i},${r},this.value)" ${disabled}></td>`;
+        });
+        row += `<td><button class="edit-small" onclick="editRound(${r})" ${gameEnded ? "disabled" : ""}>✏️</button></td>`;
+        row += "</tr>";
+        body.innerHTML += row;
+      }
+    }
+
+    function addRound() {
+      if(gameEnded) return;
+      roundCount++;
+      // تأكد من أن كل لاعب لديه مصفوفة scores كافية
+      players.forEach(p => {
+        if(!Array.isArray(p.scores)) p.scores = [];
+        while(p.scores.length < roundCount) p.scores.push(undefined);
+      });
+      editableRound = roundCount - 1;
+      saveData();
+      renderRounds();
+    }
+
+    function editRound(r) {
+      if(gameEnded) return;
+      editableRound = r;
+      saveData();
+      renderRounds();
+      alert("ممكن تعدل جولة " + (r+1));
+    }
+
+    function updateScore(playerIndex, roundIndex, value) {
+      if(!players[playerIndex]) return;
+      if(!Array.isArray(players[playerIndex].scores)) players[playerIndex].scores = [];
+      players[playerIndex].scores[roundIndex] = value === "" ? undefined : Number(value);
+      players[playerIndex].total = players[playerIndex].scores.reduce((a,b)=>a + (b||0), 0);
+      saveData();
+      renderTopPlayers();
+      renderPlayersTable();
+      renderRounds();
+    }
+
+    function endGame() {
+      if(players.length === 0) return;
+      gameEnded = true;
+      editableRound = null;
+
+      // احسب الفائز (أول لاعب بأكبر مجموع)
+      let winner = players.reduce((best, cur) => {
+        if(!best) return cur;
+        return (cur.total > (best.total||0)) ? cur : best;
+      }, null);
+
+      if(winner) {
+        winner.wins = (winner.wins || 0) + 1;
+        const found = playersWins.find(p => p.name === winner.name);
+        if(found) found.wins = winner.wins;
+        else playersWins.push({ name: winner.name, wins: winner.wins });
+      }
+
+      saveData();
+      renderPlayersTable();
+      renderWinsTable();
+
+      document.querySelectorAll(".add, .end, .edit-small").forEach(btn => btn.disabled = true);
+
+      // زر جيم جديد
+      const gameDiv = document.getElementById("game");
+      // إزالة أي زر سابق
+      const old = gameDiv.querySelector("button.start.newgamebtn");
+      if(old) old.remove();
+      const newBtn = document.createElement("button");
+      newBtn.textContent = "🔄 جيم جديد";
+      newBtn.className = "start newgamebtn";
+      newBtn.addEventListener('click', newGame);
+      gameDiv.appendChild(newBtn);
+
+      alert("تم إنهاء الجيم ✅ الفائز: " + (winner ? winner.name : "لا يوجد"));
+    }
+
+    function newGame() {
+      players = [];
+      roundCount = 0;
+      gameEnded = false;
+      editableRound = null;
+      saveData();
+
+      document.getElementById("setup").style.display = "block";
+      document.getElementById("game").style.display = "none";
+
+      document.getElementById("topPlayers").innerHTML = "";
+      document.getElementById("playersBody").innerHTML = "";
+      document.getElementById("roundsHead").innerHTML = "";
+      document.getElementById("roundsBody").innerHTML = "";
+      document.getElementById("gameName").textContent = "";
+
+      renderPlayerChoices();
+      renderWinsTable();
+    }
+
+    function renderWinsTable() {
+      const body = document.getElementById("winsBody");
+      body.innerHTML = "";
+      playersWins.slice().sort((a,b)=> (b.wins||0) - (a.wins||0)).forEach(p => {
+        const row = document.createElement("tr");
+        row.innerHTML = `<td>${p.name}</td><td>${p.wins || 0}</td>`;
+        body.appendChild(row);
+      });
+    }
+
+    // زر لمسح الـ localStorage (يساعد لو فيه بيانات فاسدة)
+    function clearStorage() {
+      if(!confirm("هل تريد مسح كل بيانات التطبيق من المتصفح؟ (سيتم فقدان كل السكورات والجولات)")) return;
+      localStorage.removeItem('fixedPlayers');
+      localStorage.removeItem('players');
+      localStorage.removeItem('playersWins');
+      localStorage.removeItem('roundCount');
+      localStorage.removeItem('gameEnded');
+      localStorage.removeItem('editableRound');
+      // إعادة تهيئة المتغيرات
+      fixedPlayers = DEFAULT_FIXED_PLAYERS.slice();
+      players = [];
+      playersWins = [];
+      roundCount = 0;
+      gameEnded = false;
+      editableRound = null;
+      saveData();
+      renderPlayerChoices();
+      renderPlayersTable();
+      renderRounds();
+      renderWinsTable();
+      alert("تم مسح البيانات. الصفحة جاهزة للعمل من جديد.");
+    }
+
+    // تهيئة الروابط والأحداث عند تحميل الصفحة
+    window.addEventListener('DOMContentLoaded', () => {
+      renderPlayerChoices();
+      renderWinsTable();
+
+      document.getElementById('addPlayerBtn').addEventListener('click', addPlayer);
+      document.getElementById('addGameBtn').addEventListener('click', addGame);
+      document.getElementById('startGameBtn').addEventListener('click', startGame);
+      document.getElementById('addRoundBtn').addEventListener('click', addRound);
+      document.getElementById('endGameBtn').addEventListener('click', endGame);
+      document.getElementById('clearStorageBtn').addEventListener('click', clearStorage);
+
+      // استئناف الجيم إذا فيه بيانات جارية
+      if(players.length > 0 && !gameEnded) {
+        // تأكد أن fixedPlayers يحتوي أسماء اللاعبين (لعمل checkboxes صحيحة)
+        players.forEach(p => { if(!fixedPlayers.includes(p.name)) fixedPlayers.push(p.name); });
+        document.getElementById("setup").style.display = "none";
+        document.getElementById("game").style.display = "block";
+        document.getElementById("gameName").textContent = "🎲 اللعبة: " + (safeParse('lastGameName') || "");
+        renderPlayerChoices();
+        renderTopPlayers();
+        renderPlayersTable();
+        renderRounds();
+      }
+    });
+  </script>
+</body>
+</html>
